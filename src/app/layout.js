@@ -17,9 +17,7 @@ export default function RootLayout({ children }) {
         />
       </head>
       <body className="min-h-screen" style={{ background: '#F0F4F8' }}>
-        <div className="min-h-screen flex flex-col">
-          {children}
-        </div>
+        <div className="min-h-screen flex flex-col">{children}</div>
       </body>
     </html>
   );
