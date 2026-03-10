@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAllStudents, addStudent, getStudentStats } from '../../lib/turso';
 import { verifyToken } from '../../lib/auth';
 
-export const runtime = 'edge';
+
 export const dynamic = 'force-dynamic';
 
 async function authenticate(request) {
