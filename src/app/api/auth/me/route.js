@@ -22,7 +22,10 @@ export async function GET(request) {
         { success: false, error: 'Session expired' },
         { status: 401 }
       );
-      response.cookies.set('auth_token', '', { maxAge: 0, path: '/' });
+      response.cookies.set('auth_token', '', {
+        maxAge: 0,
+        path: '/',
+      });
       return response;
     }
 
@@ -38,8 +41,9 @@ export async function GET(request) {
       },
     });
   } catch (error) {
+    console.error('Auth me error:', error);
     return NextResponse.json(
-      { success: false, error: 'Authentication check failed' },
+      { success: false, error: 'Auth check failed' },
       { status: 500 }
     );
   }

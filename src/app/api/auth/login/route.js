@@ -6,17 +6,29 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
   try {
-    const body = await request.json();
-    const { username, password } = body;
-
-    if (!username || !password) {
+    let body;
+    try {
+      body = await request.json();
+    } catch (e) {
       return NextResponse.json(
-        { success: false, error: 'Username and password are required' },
+        { success: false, error: 'Invalid request' },
         { status: 400 }
       );
     }
 
-    const user = validateCredentials(username.trim().toLowerCase(), password);
+    const { username, password } = body;
+
+    if (!username || !password) {
+      return NextResponse.json(
+        { success: false, error: 'Username and password required' },
+        { status: 400 }
+      );
+    }
+
+    const user = validateCredentials(
+      username.trim().toLowerCase(),
+      password
+    );
 
     if (!user) {
       return NextResponse.json(
@@ -29,7 +41,7 @@ export async function POST(request) {
 
     const response = NextResponse.json({
       success: true,
-      message: `Welcome back, ${user.name}!`,
+      message: `Welcome, ${user.name}!`,
       user: {
         id: user.id,
         name: user.name,
@@ -51,7 +63,7 @@ export async function POST(request) {
   } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json(
-      { success: false, error: 'Login failed. Please try again.' },
+      { success: false, error: 'Login failed' },
       { status: 500 }
     );
   }
