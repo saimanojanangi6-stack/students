@@ -1,43 +1,25 @@
 import { createClient } from '@libsql/client/web';
 
-let client = null;
-let tableCreated = false;
-
-function getClient() {
-  if (client) return client;
-
+function makeClient() {
   const url = process.env.TURSO_DATABASE_URL;
   const authToken = process.env.TURSO_AUTH_TOKEN;
 
-  if (!url || url === '' || url === 'undefined') {
-    throw new Error(
-      'TURSO_DATABASE_URL is not configured. Add it to your Vercel Environment Variables.'
-    );
+  if (!url || !authToken) {
+    console.error('TURSO ENV VARS:', {
+      url_exists: !!url,
+      token_exists: !!authToken,
+    });
+    throw new Error('Database not configured. Check TURSO_DATABASE_URL and TURSO_AUTH_TOKEN.');
   }
 
-  if (!authToken || authToken === '' || authToken === 'undefined') {
-    throw new Error(
-      'TURSO_AUTH_TOKEN is not configured. Add it to your Vercel Environment Variables.'
-    );
-  }
-
-  let cleanUrl = url.trim();
-  if (!cleanUrl.startsWith('libsql://') && !cleanUrl.startsWith('https://')) {
-    cleanUrl = 'libsql://' + cleanUrl;
-  }
-
-  client = createClient({
-    url: cleanUrl,
+  return createClient({
+    url: url.trim(),
     authToken: authToken.trim(),
   });
-
-  return client;
 }
 
-async function ensureTable() {
-  if (tableCreated) return;
-
-  const db = getClient();
+async function getDb() {
+  const db = makeClient();
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS students (
@@ -53,76 +35,72 @@ async function ensureTable() {
     )
   `);
 
-  tableCreated = true;
+  return db;
 }
 
 export async function getAllStudents() {
-  await ensureTable();
-  const db = getClient();
-
-  const result = await db.execute(
-    'SELECT * FROM students ORDER BY id DESC'
-  );
-
+  const db = await getDb();
+  const result = await db.execute('SELECT * FROM students ORDER BY id DESC');
   return result.rows || [];
 }
 
 export async function addStudent(data) {
-  await ensureTable();
-  const db = getClient();
+  const db = await getDb();
 
   const studentName = String(data.studentName || '').trim();
   const studentClass = String(data.class || '').trim();
   const section = String(data.section || '').trim();
   const parentMobile = String(data.parentMobile || '').trim();
-  const totalFee = parseInt(String(data.totalFee || '0'), 10);
-  const paidFee = parseInt(String(data.paidFee || '0'), 10);
-
-  if (!studentName) throw new Error('Student name is required');
-  if (!studentClass) throw new Error('Class is required');
-  if (!section) throw new Error('Section is required');
-  if (!parentMobile) throw new Error('Parent mobile is required');
-  if (isNaN(totalFee) || totalFee < 0) throw new Error('Invalid total fee');
-  if (isNaN(paidFee) || paidFee < 0) throw new Error('Invalid paid fee');
-  if (paidFee > totalFee) throw new Error('Paid fee cannot exceed total fee');
-
+  const totalFee = parseInt(String(data.totalFee), 10) || 0;
+  const paidFee = parseInt(String(data.paidFee), 10) || 0;
   const remainingFee = totalFee - paidFee;
 
-  await db.execute({
+  console.log('ADDING STUDENT:', {
+    studentName,
+    studentClass,
+    section,
+    parentMobile,
+    totalFee,
+    paidFee,
+    remainingFee,
+  });
+
+  const result = await db.execute({
     sql: `INSERT INTO students
           (studentName, class, section, parentMobile, totalFee, paidFee, remainingFee, createdAt)
           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-    args: [studentName, studentClass, section, parentMobile, totalFee, paidFee, remainingFee],
+    args: [
+      studentName,
+      studentClass,
+      section,
+      parentMobile,
+      totalFee,
+      paidFee,
+      remainingFee,
+    ],
   });
+
+  console.log('INSERT RESULT:', result);
+  return result;
 }
 
 export async function updateStudent(id, paidFee, totalFee) {
-  await ensureTable();
-  const db = getClient();
+  const db = await getDb();
 
   const studentId = parseInt(String(id), 10);
-  const paid = parseInt(String(paidFee), 10);
-  const total = parseInt(String(totalFee), 10);
-
-  if (isNaN(studentId) || studentId <= 0) throw new Error('Invalid student ID');
-  if (isNaN(paid) || paid < 0) throw new Error('Invalid paid fee');
-  if (isNaN(total) || total < 0) throw new Error('Invalid total fee');
-  if (paid > total) throw new Error('Paid fee cannot exceed total fee');
-
-  const remainingFee = total - paid;
+  const paid = parseInt(String(paidFee), 10) || 0;
+  const total = parseInt(String(totalFee), 10) || 0;
+  const remaining = total - paid;
 
   await db.execute({
     sql: 'UPDATE students SET paidFee = ?, remainingFee = ? WHERE id = ?',
-    args: [paid, remainingFee, studentId],
+    args: [paid, remaining, studentId],
   });
 }
 
 export async function deleteStudent(id) {
-  await ensureTable();
-  const db = getClient();
-
+  const db = await getDb();
   const studentId = parseInt(String(id), 10);
-  if (isNaN(studentId) || studentId <= 0) throw new Error('Invalid student ID');
 
   await db.execute({
     sql: 'DELETE FROM students WHERE id = ?',
@@ -131,8 +109,7 @@ export async function deleteStudent(id) {
 }
 
 export async function getStudentStats() {
-  await ensureTable();
-  const db = getClient();
+  const db = await getDb();
 
   try {
     const r1 = await db.execute('SELECT COUNT(*) as count FROM students');
@@ -150,12 +127,6 @@ export async function getStudentStats() {
     };
   } catch (error) {
     console.error('Stats error:', error);
-    return {
-      totalStudents: 0,
-      totalFees: 0,
-      collectedFees: 0,
-      pendingFees: 0,
-      pendingStudents: 0,
-    };
+    return { totalStudents: 0, totalFees: 0, collectedFees: 0, pendingFees: 0, pendingStudents: 0 };
   }
 }

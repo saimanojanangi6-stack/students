@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifyToken } from '../../../lib/auth';
+import { deleteStudent, getAllStudents, getStudentStats } from '../../../lib/turso';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -7,64 +8,24 @@ export const dynamic = 'force-dynamic';
 export async function DELETE(request) {
   try {
     const token = request.cookies.get('auth_token')?.value;
-    if (!token) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    if (!token) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
     const user = await verifyToken(token);
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: 'Session expired' },
-        { status: 401 }
-      );
-    }
-
-    if (!user.permissions || !user.permissions.includes('delete')) {
-      return NextResponse.json(
-        { success: false, error: 'Only Principal can delete' },
-        { status: 403 }
-      );
-    }
+    if (!user) return NextResponse.json({ success: false, error: 'Expired' }, { status: 401 });
+    if (!user.permissions?.includes('delete')) return NextResponse.json({ success: false, error: 'Only Principal can delete' }, { status: 403 });
 
     const { searchParams } = new URL(request.url);
-    const idStr = searchParams.get('id');
+    const id = parseInt(searchParams.get('id') || '0', 10);
 
-    if (!idStr) {
-      return NextResponse.json(
-        { success: false, error: 'Student ID required' },
-        { status: 400 }
-      );
-    }
-
-    const id = parseInt(idStr, 10);
-    if (isNaN(id) || id <= 0) {
-      return NextResponse.json(
-        { success: false, error: 'Valid student ID required' },
-        { status: 400 }
-      );
-    }
-
-    const { deleteStudent, getAllStudents, getStudentStats } = await import('../../../lib/turso');
+    if (!id) return NextResponse.json({ success: false, error: 'ID required' }, { status: 400 });
 
     await deleteStudent(id);
-
     const students = await getAllStudents();
     const stats = await getStudentStats();
 
-    return NextResponse.json({
-      success: true,
-      message: 'Deleted successfully',
-      students,
-      stats,
-    });
+    return NextResponse.json({ success: true, students, stats });
   } catch (error) {
-    console.error('DELETE /api/students/delete:', error);
-    return NextResponse.json(
-      { success: false, error: error.message || 'Delete failed' },
-      { status: 500 }
-    );
+    console.error('DELETE ERROR:', error.message);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

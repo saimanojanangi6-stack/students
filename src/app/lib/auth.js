@@ -20,58 +20,51 @@ const USERS = [
 ];
 
 function getSecret() {
-  return process.env.JWT_SECRET || 'schoolpro-secret-key-2024-change-this';
+  return process.env.JWT_SECRET || 'schoolpro-default-secret-2024';
 }
 
-function base64UrlEncode(str) {
-  if (typeof btoa === 'function') {
-    return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function toBase64Url(str) {
+  try {
+    const b64 = btoa(str);
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  } catch (e) {
+    const b64 = Buffer.from(str, 'utf-8').toString('base64');
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
-  return Buffer.from(str).toString('base64url');
 }
 
-function base64UrlDecode(str) {
-  const padded = str.replace(/-/g, '+').replace(/_/g, '/');
-  if (typeof atob === 'function') {
-    return atob(padded);
+function fromBase64Url(str) {
+  try {
+    const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+    return atob(b64);
+  } catch (e) {
+    return Buffer.from(str, 'base64url').toString('utf-8');
   }
-  return Buffer.from(padded, 'base64').toString('utf-8');
 }
 
-async function hmacSign(message, secret) {
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(secret);
-  const msgData = encoder.encode(message);
-
-  const cryptoKey = await crypto.subtle.importKey(
+async function hmacSign(msg, secret) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
     'raw',
-    keyData,
+    enc.encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign']
   );
-
-  const signature = await crypto.subtle.sign('HMAC', cryptoKey, msgData);
-  const bytes = new Uint8Array(signature);
-  let binary = '';
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(msg));
+  const bytes = new Uint8Array(sig);
+  let bin = '';
   for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
+    bin += String.fromCharCode(bytes[i]);
   }
-  return base64UrlEncode(binary);
-}
-
-async function hmacVerify(message, signature, secret) {
-  const expectedSig = await hmacSign(message, secret);
-  return expectedSig === signature;
+  return toBase64Url(bin);
 }
 
 export function validateCredentials(username, password) {
   const user = USERS.find(
     (u) => u.username === username && u.password === password
   );
-
   if (!user) return null;
-
   return {
     id: user.id,
     username: user.username,
@@ -83,10 +76,9 @@ export function validateCredentials(username, password) {
 }
 
 export async function createToken(user) {
-  const header = base64UrlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-
+  const header = toBase64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const now = Math.floor(Date.now() / 1000);
-  const payload = base64UrlEncode(
+  const payload = toBase64Url(
     JSON.stringify({
       id: user.id,
       username: user.username,
@@ -98,37 +90,26 @@ export async function createToken(user) {
       exp: now + 86400,
     })
   );
-
-  const signature = await hmacSign(`${header}.${payload}`, getSecret());
-
-  return `${header}.${payload}.${signature}`;
+  const sig = await hmacSign(`${header}.${payload}`, getSecret());
+  return `${header}.${payload}.${sig}`;
 }
 
 export async function verifyToken(token) {
   try {
     if (!token || typeof token !== 'string') return null;
-
     const parts = token.split('.');
     if (parts.length !== 3) return null;
 
-    const [header, payload, signature] = parts;
+    const [header, payload, sig] = parts;
+    const expected = await hmacSign(`${header}.${payload}`, getSecret());
+    if (expected !== sig) return null;
 
-    const isValid = await hmacVerify(`${header}.${payload}`, signature, getSecret());
-    if (!isValid) return null;
-
-    const decoded = JSON.parse(base64UrlDecode(payload));
-
+    const decoded = JSON.parse(fromBase64Url(payload));
     const now = Math.floor(Date.now() / 1000);
     if (decoded.exp && decoded.exp < now) return null;
 
     return decoded;
   } catch (error) {
-    console.error('Token verification error:', error);
     return null;
   }
-}
-
-export function hasPermission(user, permission) {
-  if (!user || !user.permissions) return false;
-  return user.permissions.includes(permission);
 }
